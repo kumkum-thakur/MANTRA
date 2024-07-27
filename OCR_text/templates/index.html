@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCR Camera Capture and Upload</title>
+    <style>
+        #video {
+            width: 100%;
+            height: auto;
+        }
+        #canvas {
+            display: none;
+        }
+        #resultTable {
+            width: 100%;
+            border-collapse: collapse;
+            display: none;
+        }
+        #resultTable th, #resultTable td {
+            border: 1px solid black;
+            padding: 8px;
+            text-align: left;
+        }
+        #cameraContainer, #fileUploadContainer {
+            display: block;
+        }
+        #resultsContainer {
+            display: none;
+        }
+        .editable {
+            background-color: #f9f9f9;
+        }
+        .editable:hover {
+            background-color: #e0e0e0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Capture or Upload Image for OCR</h1>
+    
+    <!-- Camera capture section -->
+    <div id="cameraContainer">
+        <video id="video" autoplay></video>
+        <button id="capture">Capture Photo</button>
+    </div>
+
+    <!-- File upload option -->
+    <div id="fileUploadContainer">
+        <input type="file" id="fileInput" accept="image/*">
+    </div>
+
+    <form id="uploadForm" method="post">
+        <input type="hidden" name="image_data" id="imageData">
+        <button type="submit">Upload Image</button>
+    </form>
+
+    <!-- Container for displaying the results -->
+    <div id="resultsContainer">
+        <h2>Extracted Medicine Details</h2>
+        <table id="resultTable">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Time of Day</th>
+                    <th>Before/After</th>
+                    <th>Days</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+        <button id="verifyButton" style="display:none;">Confirm Data</button>
+        <button id="editButton" style="display:none;">Edit Data</button>
+        <button id="saveButton" style="display:none;">Save Changes</button>
+    </div>
+    
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        const captureButton = document.getElementById('capture');
+        const fileInput = document.getElementById('fileInput');
+        const imageDataInput = document.getElementById('imageData');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const resultTable = document.getElementById('resultTable');
+        const verifyButton = document.getElementById('verifyButton');
+        const editButton = document.getElementById('editButton');
+        const saveButton = document.getElementById('saveButton');
+        let stream;
+        let currentData = [];
+
+        // Function to start video stream
+        function startCamera() {
+            navigator.mediaDevices.getUserMedia({ video: true })
+                .then(s => {
+                    stream = s;
+                    video.srcObject = stream;
+                    video.play();
+                })
+                .catch(err => {
+                    console.error("Error accessing camera: ", err);
+                    alert("Unable to access the camera. Please check your device settings.");
+                });
+        }
+
+        // Start camera on page load
+        window.onload = startCamera;
+
+        captureButton.addEventListener('click', () => {
+            if (video.videoWidth === 0 || video.videoHeight === 0) {
+                alert("Video stream is not running. Please check the camera.");
+                return;
+            }
+
+            // Capture the image
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // Convert the image to base64
+            const dataURL = canvas.toDataURL('image/png');
+            imageDataInput.value = dataURL;
+
+            // Stop the video stream
+            if (stream) {
+                let tracks = stream.getTracks();
+                tracks.forEach(track => track.stop());
+            }
+        });
+
+        fileInput.addEventListener('change', () => {
+            const file = fileInput.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    const dataURL = event.target.result;
+                    imageDataInput.value = dataURL;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // Handle form submission
+        document.getElementById('uploadForm').onsubmit = function(event) {
+            event.preventDefault(); // Prevent default form submission
+
+            const formData = new FormData();
+            formData.append('image_data', imageDataInput.value);
+
+            fetch('/', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Response:', data); // Log the response
+                currentData = data.medicines || [];
+                displayResults(data);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error processing image. Please try again.');
+            });
+        };
+
+        // Function to display results in a table and provide verification options
+        function displayResults(data) {
+            document.getElementById('cameraContainer').style.display = 'none';
+            document.getElementById('fileUploadContainer').style.display = 'none';
+            resultsContainer.style.display = 'block';
+
+            if (data.medicines && data.medicines.length > 0) {
+                const tbody = resultTable.querySelector('tbody');
+                tbody.innerHTML = ''; // Clear previous results
+
+                data.medicines.forEach((medicine, index) => {
+                    const row = document.createElement('tr');
+
+                    const medicineCell = document.createElement('td');
+                    medicineCell.innerHTML = `<input type="text" value="${medicine.name || 'Not found'}" class="editable">`;
+                    row.appendChild(medicineCell);
+
+                    const timeOfDayCell = document.createElement('td');
+                    timeOfDayCell.innerHTML = `<input type="text" value="${formatTimeOfDay(medicine.time_of_day)}" class="editable">`;
+                    row.appendChild(timeOfDayCell);
+
+                    const beforeAfterCell = document.createElement('td');
+                    beforeAfterCell.innerHTML = `<input type="text" value="${formatBeforeAfter(medicine.before_after)}" class="editable">`;
+                    row.appendChild(beforeAfterCell);
+
+                    const durationCell = document.createElement('td');
+                    durationCell.innerHTML = `<input type="text" value="${medicine.days || 'Not specified'}" class="editable">`;
+                    row.appendChild(durationCell);
+
+                    tbody.appendChild(row);
+                });
+
+                resultTable.style.display = 'table';
+                verifyButton.style.display = 'inline';
+                editButton.style.display = 'inline';
+                saveButton.style.display = 'inline';
+            } else {
+                resultsContainer.innerHTML = '<p>No medicine data found.</p>';
+            }
+        }
+
+        function formatTimeOfDay(timeOfDay) {
+            return Object.keys(timeOfDay)
+                .filter(key => timeOfDay[key])
+                .join(', ') || 'Not specified';
+        }
+
+        function formatBeforeAfter(beforeAfter) {
+            return Object.keys(beforeAfter)
+                .filter(key => beforeAfter[key])
+                .join(', ') || 'Not specified';
+        }
+
+        // Handle save button click
+        saveButton.addEventListener('click', () => {
+            const updatedData = Array.from(resultTable.querySelectorAll('tbody tr')).map(row => {
+                return {
+                    name: row.children[0].querySelector('input').value,
+                    time_of_day: parseTimeOfDay(row.children[1].querySelector('input').value),
+                    before_after: parseBeforeAfter(row.children[2].querySelector('input').value),
+                    days: row.children[3].querySelector('input').value
+                };
+            });
+
+            console.log('Updated Data:', updatedData);
+
+            // You can send updatedData to the server for further processing if needed
+            alert('Changes saved!');
+        });
+
+        // Handle verify button click
+        verifyButton.addEventListener('click', () => {
+            const updatedData = Array.from(resultTable.querySelectorAll('tbody tr')).map(row => {
+                return {
+                    name: row.children[0].querySelector('input').value,
+                    time_of_day: parseTimeOfDay(row.children[1].querySelector('input').value),
+                    before_after: parseBeforeAfter(row.children[2].querySelector('input').value),
+                    days: row.children[3].querySelector('input').value
+                };
+            });
+
+            // Here you would typically send the data to the server and handle the response
+            console.log('Confirmed Data:', updatedData);
+            window.location.href = 'OCR_text/thankyou.html'; // Redirect to the thank you page
+        });
+
+        function parseTimeOfDay(timeOfDay) {
+            const parts = timeOfDay.split(',').map(part => part.trim());
+            return {
+                morning: parts.includes('morning'),
+                noon: parts.includes('noon'),
+                evening: parts.includes('evening'),
+                night: parts.includes('night')
+            };
+        }
+
+        function parseBeforeAfter(beforeAfter) {
+            const parts = beforeAfter.split(',').map(part => part.trim());
+            return {
+                before: parts.includes('before'),
+                after: parts.includes('after')
+            };
+        }
+    </script>
+</body>
+</html>
