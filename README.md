@@ -58,7 +58,8 @@ Anish Singh: Backend Development
 This project was developed during the SparkTheSummer Hackathon. Special thanks to our mentors and organizers for their support and guidance.
 
 ## License
-This project is licensed under the MIT License. See the LICENSE file for details.
+This project is licensed under the MIT License.
+See the LICENSE file for details.  
 
 Feel free to customize any sections as needed!
 
